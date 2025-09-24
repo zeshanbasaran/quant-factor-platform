@@ -183,46 +183,6 @@ def navbar():
 app = Dash(__name__)
 server = app.server
 
-# Inject CSS via assets/ (recommended) or inline index_string. Here we inline for single-file simplicity.
-STYLE_CSS = """
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', Arial, sans-serif; background:#0f1115; color:#e6e6e6; }
-.container { max-width: 1200px; margin: 0 auto; padding: 12px 16px 40px; }
-.nav { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:#141821; border-bottom:1px solid #272b36; position:sticky; top:0; z-index:5; }
-.brand { font-weight:700; letter-spacing:.3px; }
-.btn { background:#2b6cb0; color:white; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; }
-.btn:hover { filter:brightness(1.05); }
-.status { margin-left:12px; font-size:12px; color:#9aa4b2; }
-.kpi-row { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin:16px 0; }
-.kpi-card { background:#141821; padding:12px 16px; border:1px solid #272b36; border-radius:12px; }
-.kpi-label { font-size:12px; color:#9aa4b2; }
-.kpi-value { font-size:22px; font-weight:700; margin-top:2px; }
-.kpi-sub { font-size:12px; color:#9aa4b2; margin-top:2px; }
-.grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-.panel { background:#141821; padding:10px 12px; border:1px solid #272b36; border-radius:12px; margin-top:14px; }
-.dash-table-container .row { color:#e6e6e6; }
-.dash-spreadsheet.dash-freeze-top, .dash-spreadsheet-container { background:#0f1115; }
-.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-menu { background:#141821; }
-"""
-
-app.index_string = f"""<!DOCTYPE html>
-<html>
-    <head>
-        {{%metas%}}
-        <title>Quant Factor Dashboard</title>
-        {{%favicon%}}
-        {{%css%}}
-        <style>{STYLE_CSS}</style>
-    </head>
-    <body>
-        {{%app_entry%}}
-        <footer>
-            {{%config%}}
-            {{%scripts%}}
-            {{%renderer%}}
-        </footer>
-    </body>
-</html>"""
-
 app.layout = html.Div([
     dcc.Store(id="ts-refresh", data=str(datetime.utcnow())),  # used to trigger reload
     navbar(),
@@ -235,6 +195,26 @@ app.layout = html.Div([
         ]),
         html.Div(id="tab-body"),
     ]),
+    # minimal styles for a clean look
+    html.Style("""
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', Arial, sans-serif; background:#0f1115; color:#e6e6e6; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 12px 16px 40px; }
+    .nav { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:#141821; border-bottom:1px solid #272b36; position:sticky; top:0; z-index:5; }
+    .brand { font-weight:700; letter-spacing:.3px; }
+    .btn { background:#2b6cb0; color:white; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; }
+    .btn:hover { filter:brightness(1.05); }
+    .status { margin-left:12px; font-size:12px; color:#9aa4b2; }
+    .kpi-row { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin:16px 0; }
+    .kpi-card { background:#141821; padding:12px 16px; border:1px solid #272b36; border-radius:12px; }
+    .kpi-label { font-size:12px; color:#9aa4b2; }
+    .kpi-value { font-size:22px; font-weight:700; margin-top:2px; }
+    .kpi-sub { font-size:12px; color:#9aa4b2; margin-top:2px; }
+    .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    .panel { background:#141821; padding:10px 12px; border:1px solid #272b36; border-radius:12px; margin-top:14px; }
+    .dash-table-container .row { color:#e6e6e6; }
+    .dash-spreadsheet.dash-freeze-top, .dash-spreadsheet-container { background:#0f1115; }
+    .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-menu { background:#141821; }
+    """)
 ])
 
 
@@ -364,5 +344,4 @@ def do_refresh(n: int):
 
 
 if __name__ == "__main__":
-    # Dash 2.17+: app.run_server is deprecated; use app.run
-    app.run(debug=True)
+    app.run_server(debug=True)
