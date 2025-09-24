@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 # Local deps
-from ..portfolio.performance import (
+from .performance import (
     PortfolioConfig,
     SummaryConfig,
     asset_returns_from_prices,
