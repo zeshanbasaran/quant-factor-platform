@@ -3,6 +3,8 @@ store.py
 --------
 Lightweight readers/writers for parquet/CSV and SQL targets.
 
+What this provides
+------------------
 Files
 - write_parquet(df, path) / read_parquet(path)
 - write_csv(df, path) / read_csv(path)
@@ -10,9 +12,9 @@ Files
 SQL (via SQLAlchemy)
 - write_sql(df, table, *, db_url=None, engine=None, if_exists='append', chunksize=2_000, dtype=None, index=False)
 - upsert_sql(df, table, unique_cols, *, db_url=None, engine=None, chunksize=1_000)
-  - postgresql: INSERT ... ON CONFLICT (cols) DO UPDATE SET ...
-  - mysql:      INSERT ... ON DUPLICATE KEY UPDATE ...
-  - sqlite:     INSERT OR REPLACE ...
+  - Postgres:   INSERT ... ON CONFLICT (cols) DO UPDATE SET ...
+  - MySQL:      INSERT ... ON DUPLICATE KEY UPDATE ...
+  - SQLite:     INSERT OR REPLACE ... (requires a UNIQUE constraint on unique_cols)
 
 Convenience loaders
 - load_prices(bar='1d', path=None)          -> data/processed/prices_{bar}.parquet
@@ -22,28 +24,26 @@ Convenience loaders
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, TYPE_CHECKING
+from typing import Dict, Iterable, List, Optional, Sequence
 
 import pandas as pd
 
-# Reuse core utils for safe parquet IO
+# Reuse your utils for safe parquet IO
 from src.core.utils import ensure_dir, to_parquet_safe, read_parquet_safe
 
-# typing-only imports to keep runtime deps optional while pleasing PyLance/mypy
-if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
-
-# Optional DB helpers at runtime
+# Optional DB helpers
 try:
-    from sqlalchemy import create_engine, text  # type: ignore
-except Exception:  # pragma: no cover
-    create_engine = None  # type: ignore
-    text = None  # type: ignore
-
-try:
-    from src.db.io import make_engine as _make_engine  # preferred if available
+    from src.db.io import make_engine as _make_engine
 except Exception:  # pragma: no cover
     _make_engine = None  # type: ignore
+
+try:
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import Engine
+except Exception as exc:  # pragma: no cover
+    create_engine = None  # type: ignore
+    Engine = object        # type: ignore
+    text = None            # type: ignore
 
 
 # ----------------------------
@@ -58,6 +58,7 @@ def write_parquet(df: pd.DataFrame, path: str | Path) -> Path:
     p = Path(path)
     ensure_dir(p)
     to_parquet_safe(df, p)
+    # to_parquet_safe may write CSV fallback; return whichever exists
     return p if p.exists() else Path(str(p) + ".csv")
 
 
@@ -94,7 +95,7 @@ def _resolve_engine(db_url: Optional[str], engine: Optional["Engine"]) -> "Engin
             return _make_engine(db_url)
         if create_engine is None:  # pragma: no cover
             raise RuntimeError("SQLAlchemy is not available.")
-        return create_engine(db_url, future=True)  # type: ignore[call-arg]
+        return create_engine(db_url, future=True)
     raise ValueError("Provide either an SQLAlchemy engine or a db_url.")
 
 
@@ -115,7 +116,7 @@ def write_sql(
     Returns
     -------
     int
-        Number of rows written (len(df) if non-empty).
+        Number of rows written (best-effort; equals len(df) unless driver reports otherwise).
     """
     if df is None or df.empty:
         return 0
@@ -126,7 +127,7 @@ def write_sql(
         if_exists=if_exists,
         index=index,
         chunksize=chunksize,
-        method=None,
+        method=None,   # let pandas choose best default
         dtype=dtype,
     )
     return int(len(df))
@@ -165,7 +166,13 @@ def upsert_sql(
     Requirements
     ------------
     - The target table must exist with a UNIQUE or PRIMARY KEY on `unique_cols`.
-    - DataFrame column names must match DB column names.
+    - Column names in DataFrame must match DB column names.
+
+    Behavior by dialect
+    -------------------
+    - postgresql: ON CONFLICT (unique_cols) DO UPDATE SET col=EXCLUDED.col
+    - mysql:      ON DUPLICATE KEY UPDATE col=VALUES(col)
+    - sqlite:     INSERT OR REPLACE (works when unique constraint exists)
 
     Returns
     -------
@@ -179,40 +186,34 @@ def upsert_sql(
     dialect = _dialect_name(eng)
 
     cols = list(df.columns)
-    if not set(unique_cols).issubset(cols):
+    if not set(unique_cols).issubset(set(cols)):
         missing = [c for c in unique_cols if c not in cols]
         raise ValueError(f"unique_cols missing from DataFrame: {missing}")
 
-    # Quote identifiers per dialect (backticks for MySQL, double-quotes otherwise)
-    def q(c: str) -> str:
-        return f"`{c}`" if dialect == "mysql" else f'"{c}"'
-
-    col_list = ", ".join(q(c) for c in cols)
+    # Build SQL templates
+    col_list = ", ".join(f"`{c}`" if dialect == "mysql" else f'"{c}"' for c in cols)
     placeholders = ", ".join([f":{c}" for c in cols])
 
     if dialect == "postgresql":
-        conflict_cols = ", ".join(q(c) for c in unique_cols)
-        update_assign = ", ".join(f'{q(c)}=EXCLUDED.{q(c)}' for c in cols if c not in unique_cols)
-        sql_tpl = (
-            f'INSERT INTO {q(table)} ({col_list}) VALUES ({placeholders}) '
-            f'ON CONFLICT ({conflict_cols}) DO UPDATE SET {update_assign};'
-        )
+        conflict_cols = ", ".join(f'"{c}"' for c in unique_cols)
+        update_assign = ", ".join(f'"{c}"=EXCLUDED."{c}"' for c in cols if c not in unique_cols)
+        sql_tpl = f'INSERT INTO "{table}" ({col_list}) VALUES ({placeholders}) ' \
+                  f'ON CONFLICT ({conflict_cols}) DO UPDATE SET {update_assign};'
+
     elif dialect == "mysql":
-        update_assign = ", ".join(f"{q(c)}=VALUES({q(c)})" for c in cols if c not in unique_cols)
-        sql_tpl = (
-            f'INSERT INTO {q(table)} ({col_list}) VALUES ({placeholders}) '
-            f'ON DUPLICATE KEY UPDATE {update_assign};'
-        )
+        update_assign = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in cols if c not in unique_cols)
+        sql_tpl = f'INSERT INTO `{table}` ({col_list}) VALUES ({placeholders}) ' \
+                  f'ON DUPLICATE KEY UPDATE {update_assign};'
+
     elif dialect == "sqlite":
-        # Works when a UNIQUE constraint exists on unique_cols
-        sql_tpl = f'INSERT OR REPLACE INTO {q(table)} ({col_list}) VALUES ({placeholders});'
+        # SQLite upsert (replace): safe when unique constraint exists on unique_cols
+        sql_tpl = f'INSERT OR REPLACE INTO "{table}" ({col_list}) VALUES ({placeholders});'
+
     else:
-        # Fallback: append only
+        # Fallback: no upsert; do naive append
         return write_sql(df, table, engine=eng, if_exists="append", chunksize=chunksize)
 
-    if text is None:  # pragma: no cover
-        raise RuntimeError("SQLAlchemy text() is unavailable; cannot perform upsert.")
-
+    # Execute in chunks
     total = 0
     with eng.begin() as conn:
         for batch in _chunks(df.to_dict(orient="records"), chunksize):
@@ -231,6 +232,7 @@ def load_prices(bar: str = "1d", path: Optional[str | Path] = None) -> pd.DataFr
     """
     p = Path(path) if path else Path(f"data/processed/prices_{bar}.parquet")
     df = read_parquet_safe(p)
+    # Light tidy-up
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
     if "symbol" in df.columns:
