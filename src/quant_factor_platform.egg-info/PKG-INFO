@@ -1,0 +1,22 @@
+Metadata-Version: 2.4
+Name: quant-factor-platform
+Version: 0.1.0
+Summary: Quantitative Factor Analytics & Visualization Platform for systematic trading strategies.
+Author-email: Zeshan Basaran <zeshan.basaran@gmail.com>
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: pandas>=2.0
+Requires-Dist: numpy>=1.24
+Requires-Dist: yfinance>=0.2.40
+Requires-Dist: pyarrow>=15.0
+Requires-Dist: fastparquet>=2024.2.0
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: streamlit>=1.36
+Requires-Dist: plotly>=5.20
+Requires-Dist: SQLAlchemy>=2.0
+Requires-Dist: pymysql>=1.1.0
+Requires-Dist: psycopg2-binary>=2.9
+Requires-Dist: xlsxwriter>=3.2
+Requires-Dist: openpyxl>=3.1
+Requires-Dist: scipy>=1.12
